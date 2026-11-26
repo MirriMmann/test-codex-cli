@@ -231,8 +231,9 @@ VERIFICATION_LABELS = {
 
 
 def format_verification(result: dict, *, compact: bool = False) -> str:
+    from telegram_format import markdown_code
     shorten = lambda value: value[:240] if compact else value
-    lines = [VERIFICATION_LABELS[result['status']], result['summary'][:1000] if compact else result['summary']]
+    lines = ['**' + VERIFICATION_LABELS[result['status']] + '**', result['summary'][:1000] if compact else result['summary']]
     labels = {'passed': 'пройдена', 'failed': 'ошибка', 'not_run': 'не запускалась'}
     checks = sorted(result['checks'], key=lambda item: item['status'] == 'passed') if compact else result['checks']
     for check in checks[:8] if compact else checks:
@@ -240,7 +241,7 @@ def format_verification(result: dict, *, compact: bool = False) -> str:
         code = check.get('observed_exit_code')
         if code is not None:
             evidence += f', фактический код {code}'
-        lines.append(f"• {shorten(check['command'])} — проверяющий: {labels[check['status']]} ({evidence}): {shorten(check['summary'])}")
+        lines.append(f"• {markdown_code(shorten(check['command']))} — проверяющий: {labels[check['status']]} ({evidence}): {shorten(check['summary'])}")
     criteria = sorted(result['criteria'], key=lambda item: item['status'] == 'passed') if compact else result['criteria']
     for item in criteria[:5] if compact else criteria:
         state = {'passed': 'соответствует', 'failed': 'не соответствует', 'not_checked': 'не проверен'}[item['status']]
@@ -252,24 +253,25 @@ def format_verification(result: dict, *, compact: bool = False) -> str:
 
 
 def format_report(report: dict, *, reviewed: bool = False, compact: bool = False) -> str:
+    from telegram_format import markdown_code
     shorten = lambda value: value[:240] if compact else value
     lines = [report['summary'][:1000] if compact else report['summary']]
-    lines.append('\nИзменения (со слов Codex):')
-    lines.extend(f"• {shorten(item['path'])}: {shorten(item['summary'])}" for item in (report['changes'][:10] if compact else report['changes']))
+    lines.append('\n**Изменения (со слов Codex):**')
+    lines.extend(f"• {markdown_code(shorten(item['path']))}: {shorten(item['summary'])}" for item in (report['changes'][:10] if compact else report['changes']))
     if compact and len(report['changes']) > 10:
         lines.append(f"Ещё файлов: {len(report['changes']) - 10}; полный список сохранён в реестре задачи.")
     if not report['changes']:
         lines.append('• Изменения не заявлены.')
-    lines.append('\nПроверки (со слов Codex, без независимого подтверждения):')
+    lines.append('\n**Проверки (со слов Codex, без независимого подтверждения):**')
     labels = {'passed': 'пройдена', 'failed': 'ошибка', 'not_run': 'не запускалась'}
     for check in report['checks'][:8] if compact else report['checks']:
         code = f", код {check['exit_code']}" if check['exit_code'] is not None else ''
-        lines.append(f"• {shorten(check['command'])} — {labels[check['status']]}{code}: {shorten(check['summary'])}")
+        lines.append(f"• {markdown_code(shorten(check['command']))} — {labels[check['status']]}{code}: {shorten(check['summary'])}")
     if compact and len(report['checks']) > 8:
         lines.append(f"Ещё проверок исполнителя: {len(report['checks']) - 8}.")
     if not report['checks']:
         lines.append('• Исполнитель не указал проверок.')
-    lines.append('\nОсталось:')
+    lines.append('\n**Осталось:**')
     lines.extend('• ' + shorten(item) for item in (report['remaining'][:8] if compact else report['remaining']))
     if compact and len(report['remaining']) > 8:
         lines.append('Остальные нерешённые пункты сохранены в реестре задачи.')

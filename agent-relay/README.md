@@ -5,6 +5,16 @@ in a local Git checkout and **ChatGPT web** for ordinary questions. Discussion
 continues the selected persistent ChatGPT chat and receives public Telegram context.
 Codex requests use `codex exec` and the relay's explicit session ID.
 
+## Telegram formatting
+
+Telegram replies render ordinary Markdown locally: headings, bold/italic text,
+lists, inline code, fenced code with language, links, strikethrough and spoilers.
+The bridge sends plain text plus Telegram entities (not raw MarkdownV2/HTML),
+so punctuation, shell commands and HTML-like code need no Telegram escaping.
+Long answers and code blocks are split with UTF-16 entity offsets preserved;
+the host-generated source label is repeated on each part. Unsupported/broken
+markup stays readable text. No formatting model call or dependency is added.
+
 ## Two names, two modes
 
 ```dotenv
