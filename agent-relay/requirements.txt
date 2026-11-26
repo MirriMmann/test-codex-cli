@@ -1,0 +1,2 @@
+# Codex mode uses only the Python standard library and an installed Codex CLI.
+# Optional ChatGPT mode dependencies are in requirements-chat.txt.

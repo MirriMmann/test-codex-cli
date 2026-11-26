@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+auth_data.json
+*auth_data*.json
+.agent-relay-state.json
+.agent-relay-state.json.tmp
+.env.tmp
+.runtime/
+.agent-relay-codex-session*.json
+.agent-relay-codex-session*.json.tmp
+.agent-relay-events.jsonl*
+.agent-relay-console*.log
+*.[sS][qQ][lL][iI][tT][eE]3*

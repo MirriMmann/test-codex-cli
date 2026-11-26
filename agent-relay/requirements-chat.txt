@@ -1,0 +1,2 @@
+# Optional legacy ChatGPT web backend. Codex mode uses the Python standard library.
+chatgpt-web-adapter>=0.4.1,<0.5
