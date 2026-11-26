@@ -3,55 +3,141 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Квиз о животных</title>
+  <title>Змейка</title>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; padding: 24px; font-family: system-ui, sans-serif; background: #eef7ef; color: #20352a; }
     main { max-width: 560px; margin: 30px auto; padding: 28px; background: white; border-radius: 20px; box-shadow: 0 12px 35px #20352a1a; }
     h1 { margin-top: 0; }
-    fieldset { margin: 18px 0; padding: 16px; border: 1px solid #c8ddca; border-radius: 10px; }
-    legend { font-weight: 600; }
-    label { display: block; padding: 5px 0; }
+    .game-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 20px 0 14px; }
+    .score { font-size: 1.2rem; font-weight: 700; }
     button { padding: 12px 20px; border: 0; border-radius: 10px; background: #287a45; color: white; font: inherit; cursor: pointer; }
     button:hover { background: #1c6034; }
-    output { display: block; margin-top: 18px; font-weight: 600; }
+    button:focus-visible { outline: 3px solid #20352a; outline-offset: 3px; }
+    canvas { display: block; width: 100%; max-width: 400px; height: auto; margin: 0 auto; border-radius: 12px; background: #173525; }
+    #message { min-height: 1.5em; margin-bottom: 0; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Квиз о животных 🐾</h1>
-    <p>Выбери ответ на каждый из трёх вопросов.</p>
-    <form id="quiz">
-      <fieldset>
-        <legend>1. Какое животное самое большое на Земле?</legend>
-        <label><input type="radio" name="largest" value="elephant" required> Слон</label>
-        <label><input type="radio" name="largest" value="whale"> Синий кит</label>
-        <label><input type="radio" name="largest" value="giraffe"> Жираф</label>
-      </fieldset>
-      <fieldset>
-        <legend>2. Кто умеет летать?</legend>
-        <label><input type="radio" name="fly" value="penguin" required> Пингвин</label>
-        <label><input type="radio" name="fly" value="ostrich"> Страус</label>
-        <label><input type="radio" name="fly" value="bat"> Летучая мышь</label>
-      </fieldset>
-      <fieldset>
-        <legend>3. Какое животное носит детёныша в сумке?</legend>
-        <label><input type="radio" name="pouch" value="kangaroo" required> Кенгуру</label>
-        <label><input type="radio" name="pouch" value="fox"> Лиса</label>
-        <label><input type="radio" name="pouch" value="bear"> Медведь</label>
-      </fieldset>
-      <button type="submit">Проверить ответы</button>
-      <output id="result" aria-live="polite"></output>
-    </form>
+    <h1>Змейка 🐍</h1>
+    <p>Управляй стрелками. Собирай еду и не врезайся в стены или в себя.</p>
+    <div class="game-bar">
+      <div class="score">Очки: <span id="score">0</span></div>
+      <button id="restart" type="button">Начать заново</button>
+    </div>
+    <canvas id="board" width="400" height="400" aria-label="Игровое поле змейки"></canvas>
+    <p id="message" role="status" aria-live="polite"></p>
   </main>
   <script>
-    document.getElementById('quiz').addEventListener('submit', (event) => {
+    const canvas = document.getElementById('board');
+    const context = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const messageElement = document.getElementById('message');
+    const cellSize = 20;
+    const gridSize = canvas.width / cellSize;
+    const directions = {
+      ArrowUp: { x: 0, y: -1 },
+      ArrowDown: { x: 0, y: 1 },
+      ArrowLeft: { x: -1, y: 0 },
+      ArrowRight: { x: 1, y: 0 }
+    };
+    let snake;
+    let food;
+    let direction;
+    let nextDirection;
+    let turnQueued;
+    let score;
+    let gameOver;
+
+    function placeFood() {
+      const empty = [];
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          if (!snake.some(segment => segment.x === x && segment.y === y)) empty.push({ x, y });
+        }
+      }
+      return empty.length ? empty[Math.floor(Math.random() * empty.length)] : null;
+    }
+
+    function draw() {
+      context.fillStyle = '#173525';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      if (food) {
+        context.fillStyle = '#ffca63';
+        context.beginPath();
+        context.arc((food.x + 0.5) * cellSize, (food.y + 0.5) * cellSize, cellSize * 0.35, 0, Math.PI * 2);
+        context.fill();
+      }
+      snake.forEach((segment, index) => {
+        context.fillStyle = index === 0 ? '#a8ee99' : '#53b974';
+        context.fillRect(segment.x * cellSize + 2, segment.y * cellSize + 2, cellSize - 4, cellSize - 4);
+      });
+      if (gameOver) {
+        context.fillStyle = '#173525bb';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = 'white';
+        context.font = 'bold 28px system-ui';
+        context.textAlign = 'center';
+        context.fillText(food ? 'Игра окончена' : 'Победа!', canvas.width / 2, canvas.height / 2);
+      }
+    }
+
+    function reset() {
+      snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+      direction = directions.ArrowRight;
+      nextDirection = direction;
+      turnQueued = false;
+      score = 0;
+      gameOver = false;
+      food = placeFood();
+      scoreElement.textContent = score;
+      messageElement.textContent = '';
+      draw();
+    }
+
+    function tick() {
+      if (gameOver) return;
+      direction = nextDirection;
+      turnQueued = false;
+      const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+      const ateFood = head.x === food.x && head.y === food.y;
+      const body = ateFood ? snake : snake.slice(0, -1);
+      if (head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize ||
+          body.some(segment => segment.x === head.x && segment.y === head.y)) {
+        gameOver = true;
+        messageElement.textContent = 'Игра окончена. Нажми «Начать заново», чтобы сыграть ещё раз.';
+        draw();
+        return;
+      }
+      snake.unshift(head);
+      if (ateFood) {
+        score++;
+        scoreElement.textContent = score;
+        food = placeFood();
+        if (!food) {
+          gameOver = true;
+          messageElement.textContent = 'Победа! Ты заполнил всё поле.';
+        }
+      } else {
+        snake.pop();
+      }
+      draw();
+    }
+
+    document.addEventListener('keydown', event => {
+      const requested = directions[event.key];
+      if (!requested) return;
       event.preventDefault();
-      const answers = new FormData(event.currentTarget);
-      const correct = { largest: 'whale', fly: 'bat', pouch: 'kangaroo' };
-      const score = Object.entries(correct).filter(([question, answer]) => answers.get(question) === answer).length;
-      document.getElementById('result').textContent = 'Правильных ответов: ' + score + ' из 3';
+      if (gameOver || turnQueued ||
+          requested.x === direction.x && requested.y === direction.y ||
+          requested.x === -direction.x && requested.y === -direction.y) return;
+      nextDirection = requested;
+      turnQueued = true;
     });
+    document.getElementById('restart').addEventListener('click', reset);
+    reset();
+    setInterval(tick, 140);
   </script>
 </body>
 </html>
