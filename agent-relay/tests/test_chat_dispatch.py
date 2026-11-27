@@ -80,6 +80,16 @@ class DispatchIntegrationTests(unittest.TestCase):
         self.assertTrue(any('Передана Codex' in text for text in texts))
         self.assertFalse(any('acceptance_criteria' in text for text in texts))
 
+    def test_handoff_carries_prior_peer_agreement_to_codex(self):
+        peer = self.event('Stage one: parse tab and show tuning',
+                          sender={'id': 20, 'username': 'PeerBot', 'is_bot': True})
+        peer['message']['message_thread_id'] = 77
+        self.app.process_update(peer)
+        _, chat_task = self.answer({'action': 'task', 'plan': PLAN_DATA})
+        child = self.app._pending[0]
+        self.assertIn('Stage one: parse tab and show tuning', chat_task.public_context)
+        self.assertEqual(child.public_context, chat_task.public_context)
+
     def test_discussion_does_not_queue_and_sends_only_reply(self):
         self.answer({'action': 'reply', 'reply': 'Вот объяснение кода.'})
         self.assertFalse(self.app._pending)

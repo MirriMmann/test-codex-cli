@@ -182,12 +182,14 @@ def cli_failure(logs: str, code: int, terminal_error: str = '') -> CodexError:
 
 
 class CodexCLIClient:
-    def __init__(self, *, workdir: str, session_file: str, binary: str = '', sandbox: str = 'workspace-write'):
+    def __init__(self, *, workdir: str, session_file: str, binary: str = '', sandbox: str = 'workspace-write',
+                 network_access: bool = False):
         self.workdir = validate_workspace(workdir)
         self.binary = resolve_codex_binary(binary)
         if sandbox not in ('read-only', 'workspace-write'):
             raise CodexError('CODEX_SANDBOX must be read-only or workspace-write')
         self.sandbox = sandbox
+        self.network_access = network_access
         self.sessions = SessionStore(session_file, self.workdir)
 
     def send(self, prompt: str, *, model: str = '', reasoning_effort: str = '', allow_publish: bool = False,
@@ -238,7 +240,8 @@ class CodexCLIClient:
                         '-c', 'sandbox_mode=' + json.dumps('read-only' if verification else self.sandbox),
                         '-c', 'approval_policy="never"',
                         '-c', 'projects.' + json.dumps(str(self.workdir)) + '.trust_level="untrusted"',
-                        '-c', 'sandbox_workspace_write.network_access=false',
+                        '-c', 'sandbox_workspace_write.network_access=' + str(
+                            self.network_access and not verification and self.sandbox == 'workspace-write').lower(),
                         '-c', 'sandbox_workspace_write.writable_roots=[]']
             if os.name == 'nt':
                 # Ignoring user config also drops Windows sandbox selection.

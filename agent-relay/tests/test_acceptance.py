@@ -74,9 +74,9 @@ class PrivacyAcceptanceTests(unittest.TestCase):
         self.send('/task fix addition')
         self.chat.send.assert_not_called()  # direct route has no web planning turn
         executor = self.executor.send.call_args.args[0]
-        for prompt in (executor,):
-            for canary in (PRIVATE, 'OTHER-TOPIC-CANARY', 'PUBLIC-TOPIC-CONTEXT'):
-                self.assertNotIn(canary, prompt)
+        self.assertIn('PUBLIC-TOPIC-CONTEXT', executor)
+        for canary in (PRIVATE, 'OTHER-TOPIC-CANARY'):
+            self.assertNotIn(canary, executor)
         self.assertNotIn(PRIVATE, self.outgoing())
 
     def test_credential_in_input_and_public_reply_is_scrubbed_before_storage_or_dispatch(self):

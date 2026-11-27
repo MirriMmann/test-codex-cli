@@ -133,6 +133,17 @@ class CodexClientTests(unittest.TestCase):
             self.run_turn('publish', verification=True, allow_publish=True)
         self.assertFalse((self.root / 'last-call.json').exists())
 
+    def test_network_setting_survives_resume_but_verification_stays_offline(self):
+        client = self.client()
+        client.network_access = True
+        with patch('codex_client.codex_command', return_value=[sys.executable, str(self.worker)]):
+            for verification in (False, False, True):
+                client.send('network test', verification=verification)
+                args = json.loads((self.root / 'last-call.json').read_text(encoding='utf-8'))['args']
+                expected = 'false' if verification else 'true'
+                self.assertIn('sandbox_workspace_write.network_access=' + expected, args)
+                self.assertIn('read-only' if verification else 'workspace-write', args)
+
     def test_report_schema_is_passed_to_both_new_and_resumed_cli_turns(self):
         from task_protocol import REPORT_SCHEMA
         for prompt in ('structured first', 'structured continuation'):
@@ -256,7 +267,8 @@ class CodexClientTests(unittest.TestCase):
             validate_workspace(self.root)
 
     def test_startup_uses_configured_repo_and_cancellable_client(self):
-        cfg = agent_relay.Config('token', -123, str(self.root), str(self.session), frozenset())
+        cfg = agent_relay.Config('token', -123, str(self.root), str(self.session), frozenset(),
+                                 codex_network_access=True)
         with patch.object(agent_relay.Config, 'from_env', return_value=cfg), \
              patch.object(agent_relay, 'validate_workspace', return_value=self.root), \
              patch.object(agent_relay, 'resolve_codex_binary', return_value='codex.exe'), \
@@ -268,7 +280,8 @@ class CodexClientTests(unittest.TestCase):
             agent_relay.main()
         login.assert_called_once_with('codex.exe')
         client.assert_called_once_with(workdir=str(self.root), session_file=str(self.session),
-                                       binary='codex.exe', sandbox='workspace-write', timeout_seconds=1800)
+                                       binary='codex.exe', sandbox='workspace-write',
+                                       network_access=True, timeout_seconds=1800)
         self.assertEqual(relay.call_count, 1)
         self.assertEqual(relay.call_args.args, (cfg, telegram.return_value, client.return_value))
         self.assertIsNone(relay.call_args.kwargs['chat_client'])

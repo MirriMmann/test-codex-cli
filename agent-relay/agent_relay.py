@@ -95,6 +95,7 @@ class Config:
     chat_state_file: str = ''
     chat_startup_prompt: str = ''
     group_context_file: str = ''
+    codex_network_access: bool = False
 
     @property
     def chat_enabled(self) -> bool:
@@ -125,6 +126,9 @@ class Config:
         if interval < 0:
             raise ValueError('MIN_INTERVAL_SECONDS must not be negative')
         sandbox = os.getenv('CODEX_SANDBOX', 'workspace-write').strip()
+        network_access = os.getenv('CODEX_NETWORK_ACCESS', 'false').strip().lower()
+        if network_access not in ('true', 'false', '1', '0'):
+            raise ValueError('CODEX_NETWORK_ACCESS must be true or false')
         if sandbox not in ('read-only', 'workspace-write'):
             raise ValueError('CODEX_SANDBOX must be read-only or workspace-write')
         timeout = float(os.getenv('CODEX_TIMEOUT_SECONDS', '1800'))
@@ -178,6 +182,7 @@ class Config:
             bot_aliases=bot_aliases,
             codex_bin=os.getenv('CODEX_BIN', '').strip(),
             codex_sandbox=sandbox,
+            codex_network_access=network_access in ('true', '1'),
             codex_timeout_seconds=timeout,
             codex_allow_push=allow_push in ('true', '1'),
             codex_aliases=codex_aliases,
@@ -418,6 +423,7 @@ class GenerationTask:
     publication_id: int | None = None
     prepared_plan: dict | None = None
     recheck_only: bool = False
+    public_context: str = ''
 
 
 class AgentRelay:
@@ -799,10 +805,13 @@ class AgentRelay:
         if self._human(message) and publication_only(str(message.get('text') or '')):
             self._natural_publication(message, update_id)
             return
+        public_context = self.group_context.recent_text(
+            exclude_message_id=message.get('message_id'),
+            topic_id=message.get('message_thread_id') or 0,
+        )
         prompt = make_prompt(
             message, self.config.peers,
-            self.group_context.recent_text(exclude_message_id=message.get('message_id'),
-                                           topic_id=message.get('message_thread_id') or 0),
+            public_context,
             backend=backend,
         )
         params: dict[str, Any] = {}
@@ -812,7 +821,8 @@ class AgentRelay:
             params['model'] = model
         if effort:
             params['reasoning_effort'] = effort
-        task = GenerationTask(update_id, message, prompt, params, backend=backend)
+        task = GenerationTask(update_id, message, prompt, params, backend=backend,
+                              public_context=public_context)
         if forced_backend == 'codex':
             task.prepared_plan = direct_plan(str(message.get('text') or ''))
         if backend == 'codex':
@@ -977,7 +987,7 @@ class AgentRelay:
         if self.config.effort:
             params['reasoning_effort'] = self.config.effort
         child = GenerationTask(source.update_id, message, '', params, work_id=identifier,
-                               prepared_plan=plan)
+                               prepared_plan=plan, public_context=source.public_context)
         record_event('chat_task_queued', update_id=source.update_id, task_id=identifier)
         if self._executor is not None:
             self._pending.append(child)
@@ -1214,6 +1224,7 @@ def main() -> None:
             api = Telegram(config.telegram_token)
             client = ProcessClient(workdir=str(workspace), session_file=config.codex_session_file,
                                    binary=binary, sandbox=config.codex_sandbox,
+                                   network_access=config.codex_network_access,
                                    timeout_seconds=config.codex_timeout_seconds)
             privacy = PrivacyGuard.configured(config.telegram_token,
                                                config.chat_auth_file if config.chat_enabled else '')

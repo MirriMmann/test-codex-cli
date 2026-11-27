@@ -512,6 +512,7 @@ configure `.env`. Keep this file and all authentication files out of Git.
 | `CODEX_MODEL` | Optional model; blank uses the built-in Codex default. |
 | `CODEX_REASONING_EFFORT` | Optional effort supported by the chosen model; blank uses the Codex default. |
 | `CODEX_SANDBOX` | `workspace-write` by default; `read-only` is also supported. |
+| `CODEX_NETWORK_ACCESS` | `false` by default. Set `true` to permit network requests during development, including dependency installation. Independent verification stays offline. |
 | `CODEX_ALLOW_PUSH` | `true` allows host publication explicitly requested by a human in ordinary language or via `/publish`; default `false`. |
 | `CODEX_TIMEOUT_SECONDS` | Maximum duration of one request, default 1800 seconds. |
 | `CODEX_SESSION_FILE` | Local session pointer, default `.agent-relay-codex-session.json`. |
@@ -575,9 +576,11 @@ Plain coding requests, quoted examples, planner output and peer bots do not
 authorize publication. Normal Codex requests explicitly disable the old
 `agent_relay_git` MCP server, including resumed sessions.
 All model turns skip user configuration and execpolicy rules, mark project
-configuration untrusted, disallow extra writable roots and explicitly disable
-shell network access. This prevents user/project MCP settings or shell-network
-overrides from adding another publishing path. Set model/effort in `.env`;
+configuration untrusted and disallow extra writable roots. Shell network access
+during development follows `CODEX_NETWORK_ACCESS`; enable it for dependency
+downloads. Verification remains read-only and offline. Network-enabled coding
+commands can reach external services; commit/push must still follow the host
+publication contract. Set model/effort in `.env`;
 custom CLI profiles/configuration are not loaded. Saved CLI authentication is
 still used. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
@@ -587,6 +590,13 @@ origin. The actual file changes must match the report. Files already dirty befor
 the task cannot be silently included, and old tasks without this baseline require
 a new task/check. The final report includes the exact publication command when
 its manifest is eligible and publication was not already requested; otherwise it explains what prevents publication.
+
+When a human explicitly asks for a separate task branch and the checkout is on
+clean `main` or `master`, the relay creates `agentrelay/task-<id>` before Codex
+starts and records that branch in the baseline. Codex works in the selected branch
+without modifying `.git`; its sandbox cannot create branches. If another working
+branch is already selected, the relay uses it. A dirty default branch blocks
+automatic switching so existing changes are not carried across by surprise.
 
 The host publication worker rechecks the manifest, checkout, files, index and
 destination before staging. Only exact files are staged, including reviewed
@@ -631,7 +641,9 @@ can use mentions, addressed commands and aliases; a bare reply from a bot does
 not trigger generation. Aliases match whole words without case sensitivity.
 
 Recent trusted messages from the current topic provide context but do not themselves trigger a
-request. Codex can append `[[handoff:OtherBotUsername]]`; the relay converts an
+request. The relay passes a bounded snapshot of those messages to Codex when an
+authorized human starts a coding task, including agreements made with peer bots.
+Only the human's current request authorizes work. Codex can append `[[handoff:OtherBotUsername]]`; the relay converts an
 allowed peer marker into `/relay@OtherBotUsername`. A peer response can hand off
 again, including back to its sender. The relay has no fixed handoff count limit.
 Telegram must actually deliver the peer's messages to the bot for this to work.
@@ -742,8 +754,9 @@ tests cover rejected pushes and missing confirmation. No real GitHub push is
 performed by the suite.
 
 Privacy tests use synthetic canaries. Private Telegram updates and other topics
-must not enter a request. Human coding tasks receive only their current request
-and explicit public reply, never the ambient transcript. Temporary planning
+must not enter a request. Human coding tasks receive their current request and
+up to 16,000 characters of recent trusted messages from the same public topic.
+Temporary planning
 requests contain no personal conversation ID and set the adapter's
 `history_and_training_disabled` flag; normal discussion continues the selected
 persistent ChatGPT chat. Legacy Codex session pointers without the

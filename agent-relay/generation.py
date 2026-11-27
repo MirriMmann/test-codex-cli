@@ -48,10 +48,10 @@ class ProcessClient:
 
     def __init__(self, *, workdir: str, session_file: str, binary: str = '',
                  sandbox: str = 'workspace-write', timeout_seconds: float = 1800,
-                 worker_path: Path | None = None):
+                 worker_path: Path | None = None, network_access: bool = False):
         self.config = {'workdir': str(Path(workdir).resolve()),
                        'session_file': str(Path(session_file).resolve()),
-                       'binary': binary, 'sandbox': sandbox}
+                       'binary': binary, 'sandbox': sandbox, 'network_access': network_access}
         self.timeout_seconds = timeout_seconds
         self.worker_path = worker_path or Path(__file__).with_name('generation_worker.py')
 

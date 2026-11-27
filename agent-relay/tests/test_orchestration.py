@@ -1,5 +1,6 @@
 import copy
 import json
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -11,7 +12,8 @@ from unittest.mock import Mock, patch
 
 from agent_relay import AgentRelay, Config, GenerationTask
 from generation import GenerationCancelled, GenerationFailed
-from orchestration import HOST_CONSTRAINTS, TaskOrchestrator
+from orchestration import (HOST_CONSTRAINTS, MAX_PUBLIC_CONTEXT_CHARS, TaskOrchestrator,
+                           bounded_public_context, prepare_work_branch)
 from task_protocol import OrchestrationError, format_report, parse_plan, parse_report
 from task_store import TaskStore, task_status
 
@@ -123,6 +125,8 @@ class OrchestratorTests(unittest.TestCase):
             self.assertIn(self.folder.name.replace('\\', '\\\\'), prompt)
             self.assertIn('original_human_request', prompt)
             self.assertIn('Preserve the UI', prompt)
+            self.assertIn('Do not attempt to create or switch branches', prompt)
+            self.assertIn('full specification file is absent', prompt)
             self.assertNotIn('AMBIENT GROUP CONTEXT', prompt)
             return response(REPORT)
         self.executor.send.side_effect = execute
@@ -140,6 +144,58 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(self.planner.call_args.kwargs['model'], 'chat-model')
         self.assertNotIn('allow_publish', self.planner.call_args.kwargs)
         self.assertNotIn(self.folder.name, self.planner.call_args.args[0])
+
+    def test_public_group_agreement_reaches_planner_and_executor(self):
+        peer_plan = 'Peer agreed: first stage parses Guitar Pro files and displays tuning.'
+        self.task.public_context = '\n'.join(json.dumps({'message_id': i, 'sender_kind': 'bot',
+            'author': 'PeerBot', 'text': peer_plan if i == 2 else 'Earlier public detail'},
+            ensure_ascii=False) for i in (1, 2))
+        self.runner.run(self.task)
+        planner_input = self.planner.call_args.args[0]
+        executor_input = next(call.args[0] for call in self.executor.send.call_args_list
+                              if not call.kwargs.get('verification'))
+        self.assertIn(peer_plan, planner_input)
+        self.assertIn(peer_plan, executor_input)
+        self.assertIn('empty repository alone does not block', planner_input)
+        self.assertNotIn('AMBIENT GROUP CONTEXT', executor_input)
+
+    def test_context_budget_keeps_complete_recent_messages(self):
+        old = json.dumps({'text': 'old' * 6000})
+        recent = json.dumps({'text': 'latest agreement'})
+        self.assertEqual(bounded_public_context(old + '\n' + recent), recent)
+        self.assertLessEqual(len(bounded_public_context(recent)), MAX_PUBLIC_CONTEXT_CHARS)
+
+    def test_requested_branch_is_created_by_host_and_main_is_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def git(*args):
+                return subprocess.run(['git', '-C', folder, *args], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git('init', '-b', 'main')
+            Path(folder, 'README.md').write_text('initial\n', encoding='utf-8')
+            git('add', 'README.md')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                '-c', 'core.hooksPath=NUL', 'commit', '-m', 'Initial')
+            main_head = git('rev-parse', 'HEAD')
+            record = {'repository': folder, 'goal': 'Начинай разработку в своей ветке', 'id': 12}
+            self.assertEqual(prepare_work_branch(record), 'agentrelay/task-12')
+            self.assertEqual(git('rev-parse', 'HEAD'), main_head)
+            self.assertEqual(git('rev-parse', 'main'), main_head)
+            self.assertEqual(prepare_work_branch(record), 'agentrelay/task-12')
+
+    def test_requested_branch_refuses_dirty_main(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def git(*args):
+                return subprocess.run(['git', '-C', folder, *args], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git('init', '-b', 'main')
+            Path(folder, 'README.md').write_text('initial\n', encoding='utf-8')
+            git('add', 'README.md')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                '-c', 'core.hooksPath=NUL', 'commit', '-m', 'Initial')
+            Path(folder, 'README.md').write_text('changed\n', encoding='utf-8')
+            with self.assertRaisesRegex(GenerationFailed, 'working tree has changes'):
+                prepare_work_branch({'repository': folder, 'goal': 'Work in a new branch', 'id': 13})
+            self.assertEqual(git('branch', '--show-current'), 'main')
 
     def test_planning_failure_never_launches_codex_or_retries(self):
         for result in ('malformed private planner response', json.dumps({**PLAN, 'allow_publish': True})):
@@ -272,6 +328,24 @@ class PipelineIntegrationTests(unittest.TestCase):
         posted = [call.args[1]['text'] for call in self.api.call.call_args_list if call.args[0] == 'sendMessage']
         self.assertTrue(posted[-1].startswith('codex\n\nЗадача #1'))
         self.assertIn('npm test', posted[-1])
+
+    def test_task_receives_only_trusted_same_topic_history(self):
+        self.app.config = replace(self.config, peers=frozenset({'peerbot'}),
+                                  peer_bot_ids=frozenset({20}))
+        peer = self.event('Stage one: read tabs and display tuning')
+        peer['message']['from'] = {'id': 20, 'username': 'PeerBot', 'is_bot': True}
+        self.app.process_update(peer)
+        other = self.event('UNRELATED-TOPIC-SECRET')
+        other['update_id'] = other['message']['message_id'] = 2
+        other['message']['message_thread_id'] = 9
+        self.app.process_update(other)
+        request = self.event('/task Implement the stage agreed with PeerBot')
+        request['update_id'] = request['message']['message_id'] = 3
+        self.app.process_update(request)
+        prompt = next(call.args[0] for call in self.executor.send.call_args_list
+                      if not call.kwargs.get('verification'))
+        self.assertIn('Stage one: read tabs and display tuning', prompt)
+        self.assertNotIn('UNRELATED-TOPIC-SECRET', prompt)
 
     def test_bad_plan_results_in_failed_task_and_no_executor_call(self):
         self.chat.send.return_value = SimpleNamespace(text='bad plan')

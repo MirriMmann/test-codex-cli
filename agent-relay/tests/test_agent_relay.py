@@ -71,6 +71,16 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(config.model, '')
         self.assertEqual(config.codex_workdir, str(Path('.').resolve()))
 
+    def test_network_access_config_is_explicit_and_validated(self):
+        values = {'TELEGRAM_BOT_TOKEN': 'test-token', 'TELEGRAM_CHAT_ID': '-123',
+                  'ALLOWED_USER_IDS': '10', 'CODEX_WORKDIR': '.', 'CODEX_NETWORK_ACCESS': 'true'}
+        with patch.dict(os.environ, values, clear=True), patch('agent_relay.load_dotenv'):
+            self.assertTrue(Config.from_env().codex_network_access)
+        values['CODEX_NETWORK_ACCESS'] = 'tru'
+        with patch.dict(os.environ, values, clear=True), patch('agent_relay.load_dotenv'):
+            with self.assertRaisesRegex(ValueError, 'CODEX_NETWORK_ACCESS'):
+                Config.from_env()
+
     def test_codex_workspace_is_required(self):
         values = {'TELEGRAM_BOT_TOKEN': 'test-token', 'TELEGRAM_CHAT_ID': '-123', 'ALLOWED_USER_IDS': '10'}
         with patch.dict(os.environ, values, clear=True), patch('agent_relay.load_dotenv'):
