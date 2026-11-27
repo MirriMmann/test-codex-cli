@@ -32,6 +32,8 @@ from chat_dispatch import DISPATCH_PROMPT, direct_plan, parse_dispatch
 from publication_intent import requested as publication_requested, publication_only, destination_matches
 from task_protocol import OrchestrationError
 from task_store import ACTIVE, STATUS_LABELS, TaskStore, task_status
+from project_store import ProjectStore
+from project_control import handle_project
 from orchestration import TaskOrchestrator
 from privacy import GuardedClient, PrivacyGuard, PrivacyViolation
 from git_publish_mcp import GitPublisher, PublishError
@@ -96,6 +98,7 @@ class Config:
     chat_startup_prompt: str = ''
     group_context_file: str = ''
     codex_network_access: bool = False
+    project_state_file: str = ''
 
     @property
     def chat_enabled(self) -> bool:
@@ -183,6 +186,7 @@ class Config:
             codex_bin=os.getenv('CODEX_BIN', '').strip(),
             codex_sandbox=sandbox,
             codex_network_access=network_access in ('true', '1'),
+            project_state_file=os.getenv('PROJECT_STATE_FILE', '').strip(),
             codex_timeout_seconds=timeout,
             codex_allow_push=allow_push in ('true', '1'),
             codex_aliases=codex_aliases,
@@ -438,6 +442,8 @@ class AgentRelay:
         self.cursor = Cursor(config.state_file)
         self.tasks = TaskStore(config.task_state_file or str(Path(config.state_file).with_suffix('.tasks.sqlite3')))
         self.tasks.recover()
+        self.projects = ProjectStore(config.project_state_file or str(Path(config.state_file).with_suffix('.projects.sqlite3')),
+                                     privacy=self.privacy)
         self.chat_sessions = ChatSessions(config.chat_state_file or str(Path(config.state_file).with_suffix('.chat.sqlite3')))
         self._chat_lock = threading.Lock()
         self._chat_intro_pending = True  # per launch; guarded by _chat_lock
@@ -598,12 +604,14 @@ class AgentRelay:
         if not words:
             return False, None, ''
         command, _, recipient = words[0].lower().partition('@')
-        if command not in ('/mode', '/discuss', '/task', '/status', '/cancel', '/report', '/publish'):
+        if command not in ('/mode', '/discuss', '/task', '/status', '/cancel', '/report', '/publish', '/project'):
             return False, None, ''
         if (recipient and recipient != self.bot_username.lower()) or not self._human(message):
             return True, None, ''
         body = words[1].strip() if len(words) > 1 else ''
-        if command == '/publish':
+        if command == '/project':
+            handle_project(self, message, body)
+        elif command == '/publish':
             self._publish_command(message, body)
         elif command in ('/status', '/cancel', '/report'):
             self._task_command(message, command, body)

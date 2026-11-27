@@ -517,6 +517,7 @@ configure `.env`. Keep this file and all authentication files out of Git.
 | `CODEX_TIMEOUT_SECONDS` | Maximum duration of one request, default 1800 seconds. |
 | `CODEX_SESSION_FILE` | Local session pointer, default `.agent-relay-codex-session.json`. |
 | `TASK_STATE_FILE` | Optional local SQLite task/mode registry; empty derives the path from `STATE_FILE`. |
+| `PROJECT_STATE_FILE` | Optional project metadata SQLite database; empty derives `*.projects.sqlite3` from `STATE_FILE`. |
 | `CODEX_ALIASES` | Names that explicitly select Codex, e.g. `Сударь`. |
 | `CHAT_ALIASES` | Names that explicitly select ChatGPT, e.g. `чувак`. |
 | `DEFAULT_BACKEND` | `chat` or `codex` for generic addressing. Defaults to `codex` for existing installations. |
@@ -634,6 +635,58 @@ unrelated staged files are rejected. Failed pushes are not retried automatically
 Pushing code updates the repository; website hosting is a separate deployment step.
 
 ## Addressing and handoffs
+
+### Project foundation (part 1)
+
+Project metadata is stored in a separate private SQLite database. This first
+part provides documents, round records, limits and an ordered event journal.
+It does not yet schedule project agents or automatically turn plans into coding
+tasks. Existing `/task`, verification and publication keep their own lifecycle.
+
+```text
+/project new Build a Guitar Pro import/export adapter
+/project spec 1 Import GP7, preserve tuning and capo, verify export by reimport
+/project plan 1 Implement adapter, add round-trip fixtures, document limitations
+/project status 1
+/project events 1
+/project limits 1 rounds=3 agent_calls=12 corrections=6
+/project member 1 123456789
+/project pause 1
+/project resume 1
+/project cancel 1
+```
+
+`/project status` selects the latest project accessible to that person in the
+current topic. `/project spec 1` and `/project plan 1` show the latest document.
+The owner may add another allowed human using their numeric Telegram user ID;
+membership never grants access from other groups or topics. Peers cannot invoke
+these human controls.
+
+Document revisions are immutable, carry SHA-256 hashes and use optimistic
+version checks. Plans reference the specification version they were written for;
+changing the specification requires a new plan before the next round. A round
+pins both versions and the plan hash. Its host state progresses through planning,
+agreement, execution, review and integration, then completion or failure. Active
+rounds prevent document replacement. Completing a round makes the project ready
+for another round; completing the project is a separate host decision.
+
+Default limits are 10 rounds, 40 agent calls, 20 corrections, 30 discussion turns
+and 86,400 elapsed seconds. The wall-clock limit starts with the first reserved
+operation and includes pauses and restarts. Counters reserve work before launch;
+they are not token measurements or billed currency. New project consumers must
+reserve a budget entry with a unique operation key. Repeating the same key does
+not charge twice; concurrent reservations cannot overspend the last slot. Limits
+are recorded with events in the same transaction. Exceeding a limit puts the
+project in `limited`; an explicit limit increase and resume are required.
+
+Paused, waiting-for-input, budget-limited, completed and cancelled projects have
+distinct persisted states. Opening the database does not resume work. Commands
+for metadata remain available while the bot is stopped, but creating or resuming
+a project requires `/resume` first. Project-level execution/cancellation wiring
+and automatic recovery will be connected with the later scheduling parts.
+The journal contains document identifiers/hashes and state changes rather than
+full chat transcripts. Known credentials are rejected at the storage boundary;
+the Telegram input boundary also redacts them. Database files are excluded from Git.
 
 Allowed humans can address the bot by `@username`, a word in `BOT_ALIASES`, a
 command addressed to the bot, or a Telegram reply to its message. Trusted peers
